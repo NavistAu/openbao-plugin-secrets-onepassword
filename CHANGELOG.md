@@ -10,6 +10,8 @@ model (what gets cached, for how long, and under what staleness
 guarantees) is always called out explicitly in this changelog, even
 when it is otherwise a minor or patch change.
 
+## [Unreleased]
+
 ## [0.1.0] - 2026-08-19
 
 ### Added

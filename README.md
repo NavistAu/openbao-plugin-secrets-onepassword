@@ -45,16 +45,16 @@ flowchart LR
     engine -->|read| replica[In-memory replica]
     engine -->|delta cycle| sdk[1Password service-account SDK]
     sdk -->|list / get items| onepassword[1Password]
-    replica -.->|refreshed by| sdk
+    sdk -.->|refreshes| replica
 ```
 
 Every read (`item/…`, `field/…`, `vaults/…`) is served from the
 replica. If the replica's data for that vault is outside its freshness
 window, the engine first runs a delta cycle: it lists changed items
 since the last cycle and fetches only those, then serves the read from
-the updated replica. A background loop (`PeriodicFunc`) also runs this
-delta cycle on a fixed interval per vault, independent of reads, so
-the replica stays warm even without traffic.
+the updated replica. A background timer also runs this delta cycle on
+a fixed interval per vault, independent of reads, so the replica stays
+warm even without traffic.
 
 ## When to use this
 
@@ -131,11 +131,11 @@ write always replaces the whole configuration.
 
 | Field | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `service_account_token` | string | none, required | 1Password service-account token. Concealed on read. Rewriting it rotates the engine's 1Password client. |
+| `service_account_token` | string | none, required | Concealed on read. Rewriting it rotates the engine's 1Password client. |
 | `vaults` | comma-separated strings | none | Allowlisted 1Password vault names or IDs this engine serves. |
 | `refresh_interval` | duration | `15m` | Interval between delta cycles per vault. |
-| `daily_request_limit` | integer | `1000` | Configured account-wide daily 1Password API request limit, used for the usage-ceiling calculation. |
-| `hourly_read_limit` | integer | `1000` | Configured per-token hourly read limit, used for the usage-ceiling calculation. |
+| `daily_request_limit` | integer | `1000` | Sets the daily budget the usage-ceiling calculation uses. |
+| `hourly_read_limit` | integer | `1000` | Sets the hourly budget the usage-ceiling calculation uses. |
 | `passthrough` | boolean | `true` | Serve reads within the freshness window without waiting for the periodic cycle. |
 | `passthrough_ceiling_pct` | integer | `25` | Usage ceiling, as a percent of configured limits, above which passthrough fresh-fetches stop. |
 | `passthrough_ttl` | duration | `1m` | Per-vault freshness window. `0` means every read triggers a delta cycle. |
@@ -145,15 +145,21 @@ write always replaces the whole configuration.
 | `always_fresh` | comma-separated strings | none | `vault/title` entries that bypass the freshness window on every read. |
 | `ratelimit_probe_cmd` | string | empty | Optional absolute path to a pinned `op` binary for usage probing. |
 
-A write is rejected if any of the following hold: `service_account_token`
-is empty; `refresh_interval`, `daily_request_limit`, or
-`hourly_read_limit` is not positive; `passthrough_ceiling_pct` is
-outside 0–100; `passthrough_ttl` or `negative_cache_ttl` is negative;
-`ratelimit_probe_cmd` is set but not an absolute path; `path_split` is
-set but does not compile as a regex; an `always_fresh` entry is not
-shaped `vault/title`; or the steady-state list cost implied by
-`vaults` and `refresh_interval` would exceed 25% of
-`daily_request_limit`.
+A write is rejected if any of the following hold:
+
+- `service_account_token` is empty.
+- `refresh_interval` is not positive.
+- `daily_request_limit` is not positive.
+- `hourly_read_limit` is not positive.
+- `passthrough_ceiling_pct` is outside 0–100.
+- `passthrough_ttl` is negative.
+- `negative_cache_ttl` is negative.
+- `ratelimit_probe_cmd` is set but not an absolute path.
+- `path_split` is set but does not compile as a regex.
+- An `always_fresh` entry is not shaped `vault/title`.
+- The steady-state list cost (vault count × 86400 ÷ refresh_interval
+  seconds) exceeds 25% of `daily_request_limit` (`checkGuardrail` in
+  `backend/config.go`).
 
 ## Errors and log messages
 
@@ -167,7 +173,10 @@ conditions:
 | `failed to parse flags`. | The process received flags OpenBao's plugin launcher did not set. |
 | `plugin shutting down`. | The plugin's gRPC server returned, ending the process. |
 
-| Message | Meaning |
+The engine's own failures surface as API-response error text, not as
+log lines:
+
+| Error message | Meaning |
 | --- | --- |
 | `op: not found`. | Nothing in the replica matches this vault, item, or field. |
 | `op: ambiguous title`. | Two or more items share this title. Use the item ID or `path_split` instead. |
@@ -177,30 +186,34 @@ conditions:
 | `op: engine not configured`. | No configuration has been written to `op/config` yet. |
 | `op: request gate denied cycle`. | The rate governor deferred this cycle to protect the usage ceiling. |
 | `service_account_token is required`. | A config write omitted the required token field. |
-| `config rejected: steady-state list cost … exceeds … of daily_request_limit …`. | The configured vaults and refresh_interval would spend too much of the daily budget. Raise `daily_request_limit` or `refresh_interval` instead. |
+| `config rejected: steady-state list cost … exceeds … of daily_request_limit …`. | Vault count × 86400 ÷ refresh_interval seconds exceeds 25% of `daily_request_limit` (`checkGuardrail`). Raise `daily_request_limit` or `refresh_interval` instead. |
 
 ## Troubleshooting
 
-1. Read `op/status`. It reports per-vault item counts, last refresh
-   time, consecutive failure counts, rate-governor state, and probe
-   health — with no secret material.
-2. If a read fails with `op: replica empty, cold start incomplete`,
-   wait for the next delta cycle or check `op/status` for
-   `client_init_failures` and `client_init_last_err`.
-3. If a read fails with `op: replica data exceeds staleness bound and
-   serve_stale is disabled`, either set `serve_stale=true` or resolve
-   the underlying 1Password connectivity or auth problem so the next
-   cycle can succeed.
-4. If `op/status` shows a nonzero `governor.client_init_failures` or a
-   `rate_limited`/`auth_failed` state, check `client_init_last_err`
-   for the 1Password SDK's own error text.
-5. If configured `always_fresh` entries appear in
-   `always_fresh_unmatched`, the pattern matched no item in any
-   allowlisted vault; check the vault name and item title.
-6. To force a refetch without waiting for the next cycle, write to
-   `op/refresh` (all vaults) or `op/refresh/<vault>`.
-7. To clear cached state without spending a 1Password request, write
-   to `op/invalidate` (all vaults) or `op/invalidate/<vault>`.
+- Read `op/status`. It reports per-vault item counts, last refresh
+  time, consecutive failure counts, rate-governor state, and probe
+  health — with no secret material.
+- If a read fails with `op: replica empty, cold start incomplete`,
+  wait for the next delta cycle or check `op/status` for
+  `client_init_failures` and `client_init_last_err`.
+- If a read fails with `op: replica data exceeds staleness bound and
+  serve_stale is disabled`, either set `serve_stale=true` or resolve
+  the underlying 1Password connectivity or auth problem so the next
+  cycle can succeed.
+- If `op/status` shows a nonzero `governor.client_init_failures` or a
+  `rate_limited`/`auth_failed` state, check `client_init_last_err`
+  for the 1Password SDK's own error text.
+- If configured `always_fresh` entries appear in
+  `always_fresh_unmatched`, the pattern matched no item in any
+  allowlisted vault; check the vault name and item title.
+
+## Operations
+
+- To force a refetch without waiting for the next cycle, write to
+  `op/refresh` (all vaults) or `op/refresh/<vault>`.
+- To clear cached state without spending a 1Password request, write to
+  `op/invalidate` (all vaults) or `op/invalidate/<vault>`. See Design
+  constraints below for what invalidation does and does not cost.
 
 ## Design constraints
 
