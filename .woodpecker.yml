@@ -1,0 +1,65 @@
+# Task 9 (plan docs/plans/2026-08-05-openbao-1p-engine-implementation.md):
+# build+test on every push/PR/manual run, cross-compiled release
+# artifacts + SHA256SUMS published to a forge release on tag push.
+#
+# `labels: {location: borma}` is the mandatory-label selector (DEC-0008)
+# that routes every step onto srv.borma's docker-backend Woodpecker
+# agent (WOODPECKER_AGENT_LABELS=!location=borma fences unlabelled work
+# off that agent — docs/gotchas.md). No docker socket is needed here:
+# this is a pure-Go pipeline, borma just supplies the docker-backend
+# runtime that runs each step's image as a plain container.
+#
+# aramaki (the deploy target, spec/plan Task 10) is linux_amd64 — that
+# release artifact is the load-bearing one. linux_arm64 is built and
+# published alongside it but is not (yet) consumed by any estate host.
+
+labels:
+  location: borma
+
+when:
+  - event: [push, pull_request, tag, manual]
+
+steps:
+  test:
+    image: golang:1.25
+    commands:
+      - go build ./...
+      - go test ./...
+
+  release:
+    image: golang:1.25
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: forgejo_token
+    commands:
+      # Strip the leading v: tag v0.1.0 -> artifact version 0.1.0
+      # (goreleaser-style convention used across the estate's other
+      # versioned artifacts).
+      - VERSION=${CI_COMMIT_TAG#v}
+      - BIN=openbao-plugin-secrets-onepassword
+      - |
+        for GOARCH in amd64 arm64; do
+          mkdir -p dist/linux_$GOARCH
+          CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH \
+            go build -o dist/linux_$GOARCH/$BIN ./cmd/$BIN
+          tar -C dist/linux_$GOARCH -czf ${BIN}_${VERSION}_linux_${GOARCH}.tar.gz $BIN
+        done
+      - sha256sum ${BIN}_${VERSION}_linux_*.tar.gz > SHA256SUMS
+      - cat SHA256SUMS
+      # Pinned to match the version verified locally (tea --version,
+      # 2026-08-05) — exact-version-pinned downloaded tool, per the
+      # estate's ci/images freshness convention (docs/superpowers/specs/
+      # 2026-07-20-ci-images-design.md §3).
+      - go install code.gitea.io/tea@v0.15.0
+      - tea login add --name ci --url https://git.29c.sh --token "$FORGEJO_TOKEN" --no-version-check
+      - >
+        tea releases create --repo 29c/openbao-plugin-secrets-onepassword
+        --login ci --tag "$CI_COMMIT_TAG" --title "$CI_COMMIT_TAG"
+        -a ${BIN}_${VERSION}_linux_amd64.tar.gz
+        -a ${BIN}_${VERSION}_linux_arm64.tar.gz
+        -a SHA256SUMS
+    depends_on:
+      - test
+    when:
+      - event: tag
+        ref: refs/tags/v*
