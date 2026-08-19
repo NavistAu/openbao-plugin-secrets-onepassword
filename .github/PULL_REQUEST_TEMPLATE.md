@@ -27,3 +27,5 @@ gofmt -l . -->
       [CONTRIBUTING.md](../CONTRIBUTING.md#adding-configuration-options): a
       concrete need that existing options cannot express, stated in this
       description.
+- [ ] `CHANGELOG.md` updated if this changes secret-data handling or
+      replica consistency — see its header rule.

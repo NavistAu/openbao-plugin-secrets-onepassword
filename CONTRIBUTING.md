@@ -4,6 +4,10 @@ Thank you for your interest in improving openbao-plugin-secrets-onepassword.
 This document covers the build and test workflow, the branch model, the
 documentation style rule, and the bar for adding new configuration options.
 
+In one sentence: fork the repo, clone it, branch off `develop`, make your
+change, run `gofmt`, `go vet`, and `go test`, and open a pull request
+against `develop`.
+
 ## Toolchain
 
 This project uses [mise](https://mise.jdx.dev/) to pin the Go toolchain
@@ -64,12 +68,21 @@ a new option is the right fix rather than a change to existing behavior.
 Pull requests that add configuration surface without that case will be
 declined.
 
+## Changelog
+
+If your change affects secret-data handling or the replica's consistency
+model, add an entry to `CHANGELOG.md` — see its header for the exact
+rule.
+
 ## Tests
 
 Run the full test suite before opening a pull request:
 
 ```sh
+mise exec -- go vet ./...
 mise exec -- go test ./...
 ```
 
-All packages should report `ok`.
+All packages should report `ok`. CI runs the test suite with `-race`
+(`go test -race ./...`); if you can reproduce a race locally, run it that
+way too.

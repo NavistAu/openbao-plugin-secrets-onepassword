@@ -18,5 +18,11 @@ above so the report stays confidential until a fix is available.
 
 Include enough detail to reproduce the issue: plugin version, OpenBao
 version, relevant mount configuration (with secrets redacted), and the
-observed behavior. A maintainer will acknowledge the report and follow up
-with next steps.
+observed behavior.
+
+## What to expect
+
+- Acknowledgment of your report within 7 days.
+- Coordinated disclosure: you will get advance notice before any public
+  advisory is published.
+- Credit in the advisory, unless you prefer otherwise.
