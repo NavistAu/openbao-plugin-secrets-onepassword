@@ -253,14 +253,14 @@ above.
 
 ## Contributing
 
-Contribution guidelines, including the build and test commands and the
-branch model, will land in `CONTRIBUTING.md`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the build and test commands,
+the branch model, and the bar for adding new configuration options. This
+project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## Security
 
 Report vulnerabilities through GitHub private security advisories on
-this repository, once published; a `SECURITY.md` with the full policy
-will follow.
+this repository. See [SECURITY.md](SECURITY.md) for the full policy.
 
 ## License
 
