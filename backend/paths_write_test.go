@@ -196,6 +196,21 @@ func TestWrite_SectionFieldCreateAndUpdate(t *testing.T) {
 	}
 }
 
+func TestWrite_SectionTitleWithSlash(t *testing.T) {
+	b, storage, fake := writeBackend(t, nil)
+	// the last "/" splits: labels rarely hold one, section titles sometimes do
+	mustWrite(t, b, storage, "item/Infra/token", map[string]interface{}{
+		"fields": map[string]interface{}{"Proxmox API token (scoped /vms/556)/credential": "c1"},
+	})
+	c := fake.CreateCalls[0]
+	if len(c.Sections) != 1 || c.Sections[0].Title != "Proxmox API token (scoped /vms/556)" {
+		t.Fatalf("sections = %+v", c.Sections)
+	}
+	if len(c.Fields) != 1 || c.Fields[0].Title != "credential" || c.Fields[0].SectionID == nil {
+		t.Fatalf("fields = %+v", c.Fields)
+	}
+}
+
 func TestWrite_FieldUpdate(t *testing.T) {
 	b, storage, fake := writeBackend(t, nil)
 	fake.ItemBodies["v1"]["i1"] = onepassword.Item{

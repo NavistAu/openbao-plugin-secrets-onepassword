@@ -218,9 +218,11 @@ func applyFields(item *onepassword.Item, fields, types map[string]string, creati
 	sort.Strings(labels)
 
 	for _, key := range labels {
-		section, label, hasSection := strings.Cut(key, "/")
-		if !hasSection {
-			section, label = "", key
+		// the last "/" splits: labels rarely hold one, section titles sometimes do
+		i := strings.LastIndex(key, "/")
+		section, label, hasSection := "", key, i >= 0
+		if hasSection {
+			section, label = key[:i], key[i+1:]
 		}
 		if label == "" || (hasSection && section == "") {
 			return fmt.Errorf("invalid field key %q", key)

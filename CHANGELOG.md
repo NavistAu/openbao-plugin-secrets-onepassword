@@ -12,6 +12,13 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.0-rc.2] - 2026-11-04
+
+### Fixed
+
+- A write's `<section>/<label>` field key splits at the last `/`, so a
+  section whose title holds a `/` can be written.
+
 ## [0.2.0-rc.1] - 2026-11-04
 
 ### Added
