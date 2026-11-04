@@ -26,12 +26,18 @@ func pathField(b *Backend) *framework.Path {
 				Type:        framework.TypeString,
 				Description: "Item address followed by /<field> or /<section>/<field>.",
 			},
+			"value": {Type: framework.TypeString, Description: "Write: the field's new value."},
+			"type":  {Type: framework.TypeString, Description: "Write: optional field type (concealed, text, url, ...)."},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.ReadOperation: &framework.PathOperation{
 				Callback: b.pathFieldRead,
 				Summary:  "Read a single 1Password item field value.",
+			},
+			logical.UpdateOperation: &framework.PathOperation{
+				Callback: b.pathFieldWrite,
+				Summary:  "Update one field of an existing item. Requires the vault in write_vaults.",
 			},
 		},
 

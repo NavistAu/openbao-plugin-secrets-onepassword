@@ -26,6 +26,10 @@ func pathConfig(b *Backend) *framework.Path {
 				Type:        framework.TypeCommaStringSlice,
 				Description: "Allowlisted 1Password vaults (names or IDs) this engine serves.",
 			},
+			"write_vaults": {
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Subset of vaults (names or IDs) the engine may create, update, and delete items in. Empty means read-only.",
+			},
 			"refresh_interval": {
 				Type:        framework.TypeDurationSecond,
 				Default:     defaultRefreshInterval,
@@ -116,6 +120,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	cfg := &Config{
 		ServiceAccountToken:   token,
 		Vaults:                data.Get("vaults").([]string),
+		WriteVaults:           data.Get("write_vaults").([]string),
 		RefreshInterval:       time.Duration(data.Get("refresh_interval").(int)) * time.Second,
 		DailyRequestLimit:     data.Get("daily_request_limit").(int),
 		HourlyReadLimit:       data.Get("hourly_read_limit").(int),

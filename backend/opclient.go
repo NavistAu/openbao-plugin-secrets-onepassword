@@ -40,6 +40,13 @@ type OPClient interface {
 	ListVaults(ctx context.Context) ([]onepassword.VaultOverview, error)
 	ListItems(ctx context.Context, vaultID string) ([]onepassword.ItemOverview, error)
 	GetItems(ctx context.Context, vaultID string, ids []string) ([]ItemResult, error)
+
+	// Write side (only reachable for vaults in write_vaults). Thin
+	// over Items().Create/Put/Delete; each returns the SDK's own
+	// result so the replica can be updated without a re-fetch.
+	CreateItem(ctx context.Context, params onepassword.ItemCreateParams) (onepassword.Item, error)
+	PutItem(ctx context.Context, item onepassword.Item) (onepassword.Item, error)
+	DeleteItem(ctx context.Context, vaultID, itemID string) error
 }
 
 // sdkClient is the concrete OPClient wrapping the real 1Password SDK.
@@ -68,6 +75,18 @@ func (s *sdkClient) ListVaults(ctx context.Context) ([]onepassword.VaultOverview
 
 func (s *sdkClient) ListItems(ctx context.Context, vaultID string) ([]onepassword.ItemOverview, error) {
 	return s.client.Items().List(ctx, vaultID)
+}
+
+func (s *sdkClient) CreateItem(ctx context.Context, params onepassword.ItemCreateParams) (onepassword.Item, error) {
+	return s.client.Items().Create(ctx, params)
+}
+
+func (s *sdkClient) PutItem(ctx context.Context, item onepassword.Item) (onepassword.Item, error) {
+	return s.client.Items().Put(ctx, item)
+}
+
+func (s *sdkClient) DeleteItem(ctx context.Context, vaultID, itemID string) error {
+	return s.client.Items().Delete(ctx, vaultID, itemID)
 }
 
 // GetItems fetches item bodies for ids, chunking into ≤50-ID
