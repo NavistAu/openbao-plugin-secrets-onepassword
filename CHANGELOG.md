@@ -12,7 +12,7 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-04
+## [0.2.0-rc.1] - 2026-11-04
 
 ### Added
 
