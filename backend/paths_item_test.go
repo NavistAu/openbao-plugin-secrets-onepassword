@@ -7,6 +7,7 @@ import (
 	"time"
 
 	onepassword "github.com/1password/onepassword-sdk-go"
+	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
 
@@ -18,7 +19,12 @@ import (
 // reset to zero after setup so every test only sees its own calls.
 func setupItemBackend(t *testing.T, overrides map[string]interface{}) (*Backend, logical.Storage, *FakeOPClient) {
 	t.Helper()
-	b, storage := newTestBackend(t)
+	return setupItemBackendLogger(t, overrides, nil)
+}
+
+func setupItemBackendLogger(t *testing.T, overrides map[string]interface{}, logger hclog.Logger) (*Backend, logical.Storage, *FakeOPClient) {
+	t.Helper()
+	b, storage := newTestBackendLogger(t, logger)
 
 	fake := NewFakeOPClient()
 	fake.Vaults = []onepassword.VaultOverview{{ID: "v1", Title: "Infra"}}
@@ -28,13 +34,13 @@ func setupItemBackend(t *testing.T, overrides map[string]interface{}) (*Backend,
 	}
 	fake.ItemBodies["v1"] = map[string]onepassword.Item{
 		"i1": {
-			ID: "i1", Title: "postgres",
+			ID: "i1", Title: "postgres", VaultID: "v1", Version: 1,
 			Fields: []onepassword.ItemField{
 				{ID: "f1", Title: "password", FieldType: onepassword.ItemFieldTypeConcealed, Value: "hunter2"},
 			},
 		},
 		"i2": {
-			ID: "i2", Title: "redis",
+			ID: "i2", Title: "redis", VaultID: "v1", Version: 1,
 			Fields: []onepassword.ItemField{
 				{ID: "f2", Title: "password", FieldType: onepassword.ItemFieldTypeConcealed, Value: "swordfish"},
 			},

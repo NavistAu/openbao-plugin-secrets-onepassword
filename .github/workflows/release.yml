@@ -33,8 +33,8 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::VERSION '$VERSION' is not valid semver (expected X.Y.Z)"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::VERSION '$VERSION' is not valid semver (expected X.Y.Z or X.Y.Z-rc.N)"
             exit 1
           fi
 
@@ -124,7 +124,8 @@ jobs:
             gh release upload "$TAG" assets/* --clobber
             gh release edit "$TAG" --generate-notes
           else
-            gh release create "$TAG" assets/* --title "$TAG" --generate-notes --target "${{ github.sha }}"
+            PRE=(); [[ $VERSION == *-* ]] && PRE=(--prerelease)   # X.Y.Z-rc.N ships as a pre-release
+            gh release create "$TAG" assets/* --title "$TAG" --generate-notes --target "${{ github.sha }}" "${PRE[@]}"
           fi
 
   proxy-warm:

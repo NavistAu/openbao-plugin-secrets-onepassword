@@ -180,8 +180,22 @@ func doCycle(ctx context.Context, v *vaultReplica, client OPClient, gate request
 		delete(v.overview, id)
 		delete(v.bodies, id)
 	}
+	for id := range v.tombstones {
+		if _, listed := active[id]; !listed {
+			delete(v.tombstones, id)
+		}
+	}
 	for _, r := range results {
 		if r.Err != nil {
+			continue
+		}
+		// A write or delete through the engine may have landed after this
+		// cycle's list/get: never resurrect a deleted item or regress a
+		// newer version.
+		if _, dead := v.tombstones[r.ID]; dead {
+			continue
+		}
+		if cur, ok := v.bodies[r.ID]; ok && cur.Version > r.Item.Version {
 			continue
 		}
 		v.overview[r.ID] = active[r.ID]

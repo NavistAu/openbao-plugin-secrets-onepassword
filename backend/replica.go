@@ -52,6 +52,11 @@ type vaultReplica struct {
 	splitPaths     map[string]string
 	splitCollision error
 
+	// tombstones holds IDs deleted through the engine, so a delta cycle
+	// whose list/get raced the delete cannot resurrect them. An entry is
+	// dropped by the first cycle whose list no longer contains the ID.
+	tombstones map[string]struct{}
+
 	// negativeCache remembers recent misses (title/ID/field not in
 	// the index) so a misconfigured consumer can't repeatedly burn
 	// the request budget (spec §4). Cleared wholesale by every
@@ -85,6 +90,7 @@ func newVaultReplica(vaultID string) *vaultReplica {
 		overview:      map[string]onepassword.ItemOverview{},
 		titles:        map[string][]string{},
 		bodies:        map[string]onepassword.Item{},
+		tombstones:    map[string]struct{}{},
 		negativeCache: map[string]time.Time{},
 	}
 }
@@ -304,4 +310,34 @@ func (v *vaultReplica) rebuildIndexesLocked(pathSplitRegex *regexp.Regexp) {
 	} else {
 		v.splitCollision = nil
 	}
+}
+
+// applyWrite folds an item returned by a successful create/put into
+// the replica, with no extra fetch. A body already held at a newer
+// version is never regressed.
+func (v *vaultReplica) applyWrite(item onepassword.Item, pathSplitRegex *regexp.Regexp) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if cur, ok := v.bodies[item.ID]; ok && cur.Version > item.Version {
+		return
+	}
+	delete(v.tombstones, item.ID)
+	v.overview[item.ID] = onepassword.ItemOverview{
+		ID: item.ID, Title: item.Title, Category: item.Category, VaultID: item.VaultID,
+		Websites: item.Websites, Tags: item.Tags, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+		State: onepassword.ItemStateActive,
+	}
+	v.bodies[item.ID] = item
+	v.rebuildIndexesLocked(pathSplitRegex)
+	v.negativeCache = map[string]time.Time{}
+}
+
+// applyDelete removes itemID and tombstones it against a racing cycle.
+func (v *vaultReplica) applyDelete(itemID string, pathSplitRegex *regexp.Regexp) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	delete(v.overview, itemID)
+	delete(v.bodies, itemID)
+	v.tombstones[itemID] = struct{}{}
+	v.rebuildIndexesLocked(pathSplitRegex)
 }

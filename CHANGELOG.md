@@ -12,6 +12,24 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.0-rc.1] - 2026-11-04
+
+### Added
+
+- Item writes. `op/item/<vault>/<item>` accepts create/update (upsert by
+  address; fields merged over the existing item) and delete;
+  `op/field/<vault>/<item>/<field>` accepts update. New config field
+  `write_vaults` (subset of `vaults`) gates them; empty keeps the engine
+  read-only. Writes go through the rate governor and share its budget;
+  a deferred write fails loudly instead of queueing.
+
+### Changed
+
+- Replica consistency: after a successful write the replica is updated
+  from the SDK's returned item (no re-fetch), deletes are tombstoned,
+  and a delta cycle no longer replaces a held item with an older
+  `version`. Write responses and logs never contain field values.
+
 ## [0.1.0] - 2026-08-19
 
 ### Added

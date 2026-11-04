@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	onepassword "github.com/1password/onepassword-sdk-go"
 )
@@ -44,6 +45,18 @@ type FakeOPClient struct {
 	// observe chunk boundaries at a manageable scale. Zero means use
 	// maxGetAllIDs.
 	GetItemsChunkSize int
+
+	// Write-side scripting and call records. The fake mutates Items and
+	// ItemBodies like 1Password would (new ID, version bump, removal),
+	// so tests can then make them "lag" by resetting those maps.
+	CreateErr   error
+	PutErr      error
+	DeleteErr   error
+	CreateCalls []onepassword.ItemCreateParams
+	PutCalls    []onepassword.Item
+	// DeleteCalls holds "vaultID/itemID" strings.
+	DeleteCalls []string
+	nextID      int
 
 	ListVaultsCalls int
 	ListItemsCalls  int
@@ -110,4 +123,85 @@ func (f *FakeOPClient) GetItems(ctx context.Context, vaultID string, ids []strin
 		}
 	}
 	return results, nil
+}
+
+func (f *FakeOPClient) CreateItem(ctx context.Context, params onepassword.ItemCreateParams) (onepassword.Item, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CreateCalls = append(f.CreateCalls, params)
+	if f.CreateErr != nil {
+		return onepassword.Item{}, f.CreateErr
+	}
+	f.nextID++
+	now := time.Now().UTC()
+	item := onepassword.Item{
+		ID: fmt.Sprintf("new%d", f.nextID), Title: params.Title, Category: params.Category, VaultID: params.VaultID,
+		Fields: params.Fields, Sections: params.Sections, Tags: params.Tags, Websites: params.Websites,
+		Version: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if params.Notes != nil {
+		item.Notes = *params.Notes
+	}
+	f.storeLocked(item)
+	return item, nil
+}
+
+func (f *FakeOPClient) PutItem(ctx context.Context, item onepassword.Item) (onepassword.Item, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.PutCalls = append(f.PutCalls, item)
+	if f.PutErr != nil {
+		return onepassword.Item{}, f.PutErr
+	}
+	cur, ok := f.ItemBodies[item.VaultID][item.ID]
+	if !ok {
+		return onepassword.Item{}, fmt.Errorf("1password: item %q not found", item.ID)
+	}
+	item.Version = cur.Version + 1
+	item.UpdatedAt = time.Now().UTC()
+	if !item.UpdatedAt.After(cur.UpdatedAt) {
+		item.UpdatedAt = cur.UpdatedAt.Add(time.Second)
+	}
+	f.storeLocked(item)
+	return item, nil
+}
+
+func (f *FakeOPClient) DeleteItem(ctx context.Context, vaultID, itemID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.DeleteCalls = append(f.DeleteCalls, vaultID+"/"+itemID)
+	if f.DeleteErr != nil {
+		return f.DeleteErr
+	}
+	if _, ok := f.ItemBodies[vaultID][itemID]; !ok {
+		return fmt.Errorf("1password: item %q not found", itemID)
+	}
+	delete(f.ItemBodies[vaultID], itemID)
+	kept := f.Items[vaultID][:0:0]
+	for _, ov := range f.Items[vaultID] {
+		if ov.ID != itemID {
+			kept = append(kept, ov)
+		}
+	}
+	f.Items[vaultID] = kept
+	return nil
+}
+
+// storeLocked upserts item's body and overview. Caller holds f.mu.
+func (f *FakeOPClient) storeLocked(item onepassword.Item) {
+	if f.ItemBodies[item.VaultID] == nil {
+		f.ItemBodies[item.VaultID] = map[string]onepassword.Item{}
+	}
+	f.ItemBodies[item.VaultID][item.ID] = item
+	ov := onepassword.ItemOverview{ID: item.ID, Title: item.Title, Category: item.Category, VaultID: item.VaultID,
+		Websites: item.Websites, Tags: item.Tags, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, State: onepassword.ItemStateActive}
+	list := append([]onepassword.ItemOverview(nil), f.Items[item.VaultID]...)
+	for i := range list {
+		if list[i].ID == item.ID {
+			list[i] = ov
+			f.Items[item.VaultID] = list
+			return
+		}
+	}
+	f.Items[item.VaultID] = append(list, ov)
 }

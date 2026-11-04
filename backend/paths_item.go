@@ -28,12 +28,40 @@ func pathItem(b *Backend) *framework.Path {
 				Type:        framework.TypeString,
 				Description: "1Password item ID, exact title, or path_split (D13) address.",
 			},
+			"category": {
+				Type:        framework.TypeString,
+				Description: "Write: item category for a new item (default login); ignored, with a warning, on update.",
+			},
+			"fields": {
+				Type:        framework.TypeMap,
+				Description: "Write: map of label (or <section>/<label>) to string value, merged over the item.",
+			},
+			"field_types": {
+				Type:        framework.TypeMap,
+				Description: "Write: map of label to concealed|text|url|email|phone|date|monthyear|menu|reference.",
+			},
+			"notes": {Type: framework.TypeString, Description: "Write: item notes."},
+			"tags":  {Type: framework.TypeCommaStringSlice, Description: "Write: item tags (replaces)."},
+			"url":   {Type: framework.TypeString, Description: "Write: the item's primary website."},
 		},
+		ExistenceCheck: b.pathItemExistence,
 
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.ReadOperation: &framework.PathOperation{
 				Callback: b.pathItemRead,
 				Summary:  "Read a 1Password item, including concealed fields, sections, notes, and tags.",
+			},
+			logical.CreateOperation: &framework.PathOperation{
+				Callback: b.pathItemWrite,
+				Summary:  "Create an item (upsert by address). Requires the vault in write_vaults.",
+			},
+			logical.UpdateOperation: &framework.PathOperation{
+				Callback: b.pathItemWrite,
+				Summary:  "Update an item, merging the given fields over it. Requires the vault in write_vaults.",
+			},
+			logical.DeleteOperation: &framework.PathOperation{
+				Callback: b.pathItemDelete,
+				Summary:  "Delete an item (not archive); absent is success. Requires the vault in write_vaults.",
 			},
 		},
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
 
@@ -13,9 +14,19 @@ import (
 // without a real 1Password SDK client.
 func newTestBackend(t *testing.T) (*Backend, logical.Storage) {
 	t.Helper()
+	return newTestBackendLogger(t, nil)
+}
+
+// newTestBackendLogger is newTestBackend with an explicit logger (nil
+// keeps the test default), so write tests can capture log output.
+func newTestBackendLogger(t *testing.T, logger hclog.Logger) (*Backend, logical.Storage) {
+	t.Helper()
 
 	b := newBackend()
 	conf := logical.TestBackendConfig()
+	if logger != nil {
+		conf.Logger = logger
+	}
 	conf.StorageView = &logical.InmemStorage{}
 	if err := b.Setup(context.Background(), conf); err != nil {
 		t.Fatalf("Setup: %v", err)

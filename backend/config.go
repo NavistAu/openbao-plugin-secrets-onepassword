@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,8 +40,11 @@ const guardrailFraction = 0.25
 // write, so there is no partial-update/merge-with-previous case to
 // handle (token rotation is simply "write the whole config again").
 type Config struct {
-	ServiceAccountToken   string        `json:"service_account_token"`
-	Vaults                []string      `json:"vaults"`
+	ServiceAccountToken string   `json:"service_account_token"`
+	Vaults              []string `json:"vaults"`
+	// WriteVaults is the subset of Vaults the engine may write to
+	// (names or IDs). Empty means the engine is read-only.
+	WriteVaults           []string      `json:"write_vaults"`
 	RefreshInterval       time.Duration `json:"refresh_interval"`
 	DailyRequestLimit     int           `json:"daily_request_limit"`
 	HourlyReadLimit       int           `json:"hourly_read_limit"`
@@ -70,6 +74,11 @@ type Config struct {
 func (c *Config) validate() error {
 	if c.ServiceAccountToken == "" {
 		return errors.New("service_account_token is required")
+	}
+	for _, w := range c.WriteVaults {
+		if !slices.Contains(c.Vaults, w) {
+			return fmt.Errorf("write_vaults: %q is not listed in vaults (write_vaults must be a subset of vaults)", w)
+		}
 	}
 	if c.RefreshInterval <= 0 {
 		return errors.New("refresh_interval must be positive")
@@ -205,6 +214,7 @@ func (b *Backend) applyConfig(ctx context.Context, req *logical.Request, cfg *Co
 func configResponseData(cfg *Config) map[string]interface{} {
 	return map[string]interface{}{
 		"vaults":                  cfg.Vaults,
+		"write_vaults":            cfg.WriteVaults,
 		"refresh_interval":        cfg.RefreshInterval.String(),
 		"daily_request_limit":     cfg.DailyRequestLimit,
 		"hourly_read_limit":       cfg.HourlyReadLimit,
