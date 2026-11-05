@@ -34,11 +34,19 @@ func pathItem(b *Backend) *framework.Path {
 			},
 			"fields": {
 				Type:        framework.TypeMap,
-				Description: "Write: map of label (or <section>/<label>) to string value, merged over the item.",
+				Description: "Write: map of top-level field label to string value, merged over the item.",
 			},
 			"field_types": {
 				Type:        framework.TypeMap,
-				Description: "Write: map of label to concealed|text|url|email|phone|date|monthyear|menu|reference.",
+				Description: "Write: map of top-level label to concealed|text|url|email|phone|date|monthyear|menu|reference.",
+			},
+			"sections": {
+				Type:        framework.TypeMap,
+				Description: "Write: map of section title to a map of label to string value; a missing section is created.",
+			},
+			"section_types": {
+				Type:        framework.TypeMap,
+				Description: "Write: map of section title to a map of label to field type, as field_types.",
 			},
 			"notes": {Type: framework.TypeString, Description: "Write: item notes."},
 			"tags":  {Type: framework.TypeCommaStringSlice, Description: "Write: item tags (replaces)."},

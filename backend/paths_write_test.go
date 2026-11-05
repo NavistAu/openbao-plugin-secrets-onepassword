@@ -158,7 +158,8 @@ func TestWrite_UpdateWarnsOnCategoryMismatch(t *testing.T) {
 func TestWrite_SectionFieldCreateAndUpdate(t *testing.T) {
 	b, storage, fake := writeBackend(t, nil)
 	mustWrite(t, b, storage, "item/Infra/sectioned", map[string]interface{}{
-		"fields": map[string]interface{}{"db/password": "p1", "top": "t"},
+		"fields":   map[string]interface{}{"top": "t"},
+		"sections": map[string]interface{}{"db": map[string]interface{}{"password": "p1"}},
 	})
 	c := fake.CreateCalls[0]
 	if len(c.Sections) != 1 || c.Sections[0].Title != "db" {
@@ -174,7 +175,7 @@ func TestWrite_SectionFieldCreateAndUpdate(t *testing.T) {
 		t.Fatalf("section field wrong: %+v", c.Fields)
 	}
 
-	mustWrite(t, b, storage, "item/Infra/sectioned", map[string]interface{}{"fields": map[string]interface{}{"db/password": "p2"}})
+	mustWrite(t, b, storage, "item/Infra/sectioned", map[string]interface{}{"sections": map[string]interface{}{"db": map[string]interface{}{"password": "p2"}}})
 	p := fake.PutCalls[0]
 	if len(p.Sections) != 1 {
 		t.Errorf("update duplicated the section: %+v", p.Sections)
@@ -198,9 +199,8 @@ func TestWrite_SectionFieldCreateAndUpdate(t *testing.T) {
 
 func TestWrite_SectionTitleWithSlash(t *testing.T) {
 	b, storage, fake := writeBackend(t, nil)
-	// the last "/" splits: labels rarely hold one, section titles sometimes do
 	mustWrite(t, b, storage, "item/Infra/token", map[string]interface{}{
-		"fields": map[string]interface{}{"Proxmox API token (scoped /vms/556)/credential": "c1"},
+		"sections": map[string]interface{}{"Proxmox API token (scoped /vms/556)": map[string]interface{}{"credential": "c1"}},
 	})
 	c := fake.CreateCalls[0]
 	if len(c.Sections) != 1 || c.Sections[0].Title != "Proxmox API token (scoped /vms/556)" {
@@ -208,6 +208,40 @@ func TestWrite_SectionTitleWithSlash(t *testing.T) {
 	}
 	if len(c.Fields) != 1 || c.Fields[0].Title != "credential" || c.Fields[0].SectionID == nil {
 		t.Fatalf("fields = %+v", c.Fields)
+	}
+}
+
+func TestWrite_SlashIsLiteral(t *testing.T) {
+	b, storage, fake := writeBackend(t, nil)
+	mustWrite(t, b, storage, "item/Infra/slashy", map[string]interface{}{
+		"fields":        map[string]interface{}{"a/b": "v"},
+		"sections":      map[string]interface{}{"s": map[string]interface{}{"c/d": "w"}},
+		"section_types": map[string]interface{}{"s": map[string]interface{}{"c/d": "url"}},
+	})
+	c := fake.CreateCalls[0]
+	if len(c.Sections) != 1 || c.Sections[0].Title != "s" {
+		t.Fatalf("sections = %+v", c.Sections)
+	}
+	if f := fieldByTitle(onepassword.Item{Fields: c.Fields}, "a/b"); f == nil || f.SectionID != nil {
+		t.Errorf("top-level a/b = %+v", f)
+	}
+	if f := fieldByTitle(onepassword.Item{Fields: c.Fields}, "c/d"); f == nil || f.SectionID == nil || f.FieldType != onepassword.ItemFieldTypeURL {
+		t.Errorf("section c/d = %+v", f)
+	}
+}
+
+func TestWrite_SectionTypesMustMatch(t *testing.T) {
+	b, storage, _ := writeBackend(t, nil)
+	for name, body := range map[string]map[string]interface{}{
+		"type for unset label":   {"sections": map[string]interface{}{"s": map[string]interface{}{"a": "v"}}, "section_types": map[string]interface{}{"s": map[string]interface{}{"b": "url"}}},
+		"type for unset section": {"section_types": map[string]interface{}{"s": map[string]interface{}{"a": "url"}}},
+		"section not a map":      {"sections": map[string]interface{}{"s": "v"}},
+		"empty section title":    {"sections": map[string]interface{}{"": map[string]interface{}{"a": "v"}}},
+	} {
+		resp, err := doWrite(t, b, storage, logical.UpdateOperation, "item/Infra/bad", body)
+		if err != nil || resp == nil || !resp.IsError() {
+			t.Errorf("%s: want an error response, got %v %v", name, resp, err)
+		}
 	}
 }
 
