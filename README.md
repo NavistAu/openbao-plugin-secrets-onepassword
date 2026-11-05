@@ -216,8 +216,10 @@ not archive; deleting an absent item succeeds).
 | Body field | Meaning |
 | --- | --- |
 | `category` | Create only; default `login`. On update a differing value is ignored with a response warning. |
-| `fields` | Map of `label` (or `<section>/<label>`) to string value. Merged over the item; fields and sections not named are kept. A missing section is created. |
-| `field_types` | Map of label to `concealed`, `text`, `url`, `email`, `phone`, `date`, `monthyear`, `menu`, `reference`. Default: `concealed` for `password`/`credential`, otherwise `text`; an existing field keeps its type. |
+| `fields` | Map of top-level `label` to string value. Merged over the item; fields and sections not named are kept. |
+| `sections` | Map of section title to a map of `label` to string value, merged the same way. A missing section is created. Titles and labels are literal: a `/` in either is just a character. |
+| `field_types` | Map of top-level label to `concealed`, `text`, `url`, `email`, `phone`, `date`, `monthyear`, `menu`, `reference`. Default: `concealed` for `password`/`credential`, otherwise `text`; an existing field keeps its type. |
+| `section_types` | Map of section title to a map of label to type, as `field_types`. Each must name a field the same body sets. |
 | `notes`, `tags`, `url` | Optional; `tags` replaces, `url` sets the primary website. |
 
 The response is `id`, `title`, `version`, `updated_at`, never field
@@ -228,7 +230,7 @@ segment.
 ```sh
 # create (JSON body, since fields is a map)
 bao write op/item/Infra/rollothermal - <<'JSON'
-{"category": "login", "fields": {"username": "rollo", "password": "s3cret", "api/token": "t0k"}, "tags": "iac"}
+{"category": "login", "fields": {"username": "rollo", "password": "s3cret"}, "sections": {"api": {"token": "t0k"}}, "tags": "iac"}
 JSON
 # update: only the named fields change
 bao write op/item/Infra/rollothermal - <<'JSON'

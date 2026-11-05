@@ -12,6 +12,17 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.0-rc.2] - 2026-11-04
+
+### Changed
+
+- Item writes name section fields in a `sections` map (section title to
+  label to value) with `section_types` beside it, in place of the
+  `<section>/<label>` key in `fields`. A `/` in a title or label is now
+  literal, so a section such as `API token (scoped /vms/556)` can be
+  written. A `fields` key holding `/` is a top-level label, no longer a
+  section reference.
+
 ## [0.2.0-rc.1] - 2026-11-04
 
 ### Added

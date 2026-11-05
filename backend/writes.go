@@ -205,31 +205,102 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// applyFields merges fields (label or "<section>/<label>" -> value) over
-// item: named fields are updated in place (type kept unless types names
-// one), unnamed fields and sections are untouched, absent fields and
-// sections are created. creating marks a new item, whose top-level
-// fields take their label as ID (the SDK's built-in field convention).
-func applyFields(item *onepassword.Item, fields, types map[string]string, creating bool) error {
-	labels := make([]string, 0, len(fields))
-	for k := range fields {
-		labels = append(labels, k)
+// fieldWrite is one field a write sets: section "" is the item's top level.
+type fieldWrite struct {
+	section, label, value, typ string
+}
+
+// sectionMap reads a map of section title to map of label to string.
+func sectionMap(raw interface{}, name string) (map[string]map[string]string, error) {
+	if raw == nil {
+		return nil, nil
 	}
-	sort.Strings(labels)
-
-	for _, key := range labels {
-		section, label, hasSection := strings.Cut(key, "/")
-		if !hasSection {
-			section, label = "", key
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("%s must be a map of section title to a map of label to string value", name)
+	}
+	out := make(map[string]map[string]string, len(m))
+	for title, v := range m {
+		if title == "" {
+			return nil, fmt.Errorf("%s: a section title must not be empty", name)
 		}
-		if label == "" || (hasSection && section == "") {
-			return fmt.Errorf("invalid field key %q", key)
+		inner, err := stringMap(v, fmt.Sprintf("%s[%q]", name, title))
+		if err != nil {
+			return nil, err
 		}
+		out[title] = inner
+	}
+	return out, nil
+}
 
+// parseFieldWrites reads the body's fields/field_types (top level) and
+// sections/section_types (section title -> label -> value or type). A
+// type must name a field the same body sets.
+func parseFieldWrites(raw map[string]interface{}) ([]fieldWrite, error) {
+	fields, err := stringMap(raw["fields"], "fields")
+	if err != nil {
+		return nil, err
+	}
+	types, err := stringMap(raw["field_types"], "field_types")
+	if err != nil {
+		return nil, err
+	}
+	sections, err := sectionMap(raw["sections"], "sections")
+	if err != nil {
+		return nil, err
+	}
+	sectionTypes, err := sectionMap(raw["section_types"], "section_types")
+	if err != nil {
+		return nil, err
+	}
+	var out []fieldWrite
+	add := func(section string, vals, typs map[string]string, typesName string) error {
+		for k := range typs {
+			if _, ok := vals[k]; !ok {
+				return fmt.Errorf("%s names %q, which is not set", typesName, k)
+			}
+		}
+		for label, v := range vals {
+			if label == "" {
+				return errors.New("a field label must not be empty")
+			}
+			out = append(out, fieldWrite{section: section, label: label, value: v, typ: typs[label]})
+		}
+		return nil
+	}
+	if err := add("", fields, types, "field_types"); err != nil {
+		return nil, err
+	}
+	for title := range sectionTypes {
+		if _, ok := sections[title]; !ok {
+			return nil, fmt.Errorf("section_types names section %q, which is not in sections", title)
+		}
+	}
+	for title, vals := range sections {
+		if err := add(title, vals, sectionTypes[title], fmt.Sprintf("section_types[%q]", title)); err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].section != out[j].section {
+			return out[i].section < out[j].section
+		}
+		return out[i].label < out[j].label
+	})
+	return out, nil
+}
+
+// applyFields merges writes over item: named fields are updated in place
+// (type kept unless the write names one), unnamed fields and sections
+// are untouched, absent fields and sections are created. creating marks
+// a new item, whose top-level fields take their label as ID (the SDK's
+// built-in field convention).
+func applyFields(item *onepassword.Item, writes []fieldWrite, creating bool) error {
+	for _, w := range writes {
 		var sectionID *string
-		if hasSection {
+		if w.section != "" {
 			for _, s := range item.Sections {
-				if s.Title == section {
+				if s.Title == w.section {
 					id := s.ID
 					sectionID = &id
 					break
@@ -237,16 +308,16 @@ func applyFields(item *onepassword.Item, fields, types map[string]string, creati
 			}
 			if sectionID == nil {
 				id := newID()
-				item.Sections = append(item.Sections, onepassword.ItemSection{ID: id, Title: section})
+				item.Sections = append(item.Sections, onepassword.ItemSection{ID: id, Title: w.section})
 				sectionID = &id
 			}
 		}
 
 		var wantType onepassword.ItemFieldType
-		if tn, ok := types[key]; ok {
-			t, ok := fieldTypeByName[normName(tn)]
+		if w.typ != "" {
+			t, ok := fieldTypeByName[normName(w.typ)]
 			if !ok {
-				return fmt.Errorf("field_types: unknown type %q for %q", tn, key)
+				return fmt.Errorf("unknown field type %q for %q", w.typ, w.label)
 			}
 			wantType = t
 		}
@@ -254,7 +325,7 @@ func applyFields(item *onepassword.Item, fields, types map[string]string, creati
 		var existing *onepassword.ItemField
 		for i := range item.Fields {
 			f := &item.Fields[i]
-			if f.Title != label {
+			if f.Title != w.label {
 				continue
 			}
 			if (sectionID == nil) != (f.SectionID == nil) || (sectionID != nil && *f.SectionID != *sectionID) {
@@ -264,7 +335,7 @@ func applyFields(item *onepassword.Item, fields, types map[string]string, creati
 			break
 		}
 		if existing != nil {
-			existing.Value = fields[key]
+			existing.Value = w.value
 			if wantType != "" {
 				existing.FieldType = wantType
 			}
@@ -273,20 +344,15 @@ func applyFields(item *onepassword.Item, fields, types map[string]string, creati
 
 		if wantType == "" {
 			wantType = onepassword.ItemFieldTypeText
-			if l := strings.ToLower(label); l == "password" || l == "credential" {
+			if l := strings.ToLower(w.label); l == "password" || l == "credential" {
 				wantType = onepassword.ItemFieldTypeConcealed
 			}
 		}
-		f := onepassword.ItemField{ID: newID(), Title: label, SectionID: sectionID, FieldType: wantType, Value: fields[key]}
+		f := onepassword.ItemField{ID: newID(), Title: w.label, SectionID: sectionID, FieldType: wantType, Value: w.value}
 		if creating && sectionID == nil {
-			f.ID = label
+			f.ID = w.label
 		}
 		item.Fields = append(item.Fields, f)
-	}
-	for k := range types {
-		if _, ok := fields[k]; !ok {
-			return fmt.Errorf("field_types names %q, which is not in fields", k)
-		}
 	}
 	return nil
 }
@@ -305,11 +371,7 @@ func (b *Backend) pathItemExistence(ctx context.Context, req *logical.Request, d
 func (b *Backend) pathItemWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	itemAddr := data.Get("item").(string)
 
-	fields, err := stringMap(data.Raw["fields"], "fields")
-	if err != nil {
-		return logical.ErrorResponse(err.Error()), nil
-	}
-	types, err := stringMap(data.Raw["field_types"], "field_types")
+	writes, err := parseFieldWrites(data.Raw)
 	if err != nil {
 		return logical.ErrorResponse(err.Error()), nil
 	}
@@ -347,7 +409,7 @@ func (b *Backend) pathItemWrite(ctx context.Context, req *logical.Request, data 
 		if category != "" && category != cur.Category {
 			warnings = append(warnings, "category is ignored on update; the item keeps its existing category")
 		}
-		if err := applyFields(&cur, fields, types, false); err != nil {
+		if err := applyFields(&cur, writes, false); err != nil {
 			return logical.ErrorResponse(err.Error()), nil
 		}
 		if hasNotes {
@@ -383,7 +445,7 @@ func (b *Backend) pathItemWrite(ctx context.Context, req *logical.Request, data 
 		category = onepassword.ItemCategoryLogin
 	}
 	n := onepassword.Item{Title: itemAddr, Category: category, VaultID: wc.vaultID}
-	if err := applyFields(&n, fields, types, true); err != nil {
+	if err := applyFields(&n, writes, true); err != nil {
 		return logical.ErrorResponse(err.Error()), nil
 	}
 	params := onepassword.ItemCreateParams{Category: category, VaultID: wc.vaultID, Title: itemAddr, Fields: n.Fields, Sections: n.Sections}
@@ -469,20 +531,13 @@ func (b *Backend) pathFieldWrite(ctx context.Context, req *logical.Request, data
 		return logical.ErrorResponse(errNotFound.Error()), nil
 	}
 
-	key := label
-	if section != "" {
-		key = section + "/" + label
-	}
-	types := map[string]string{}
-	if t := data.Get("type").(string); t != "" {
-		types[key] = t
-	}
+	w := fieldWrite{section: section, label: label, value: value.(string), typ: data.Get("type").(string)}
 
 	cur, resp, err := b.fetchFresh(ctx, wc, itemID)
 	if cur.ID == "" {
 		return resp, err
 	}
-	if err := applyFields(&cur, map[string]string{key: value.(string)}, types, false); err != nil {
+	if err := applyFields(&cur, []fieldWrite{w}, false); err != nil {
 		return logical.ErrorResponse(err.Error()), nil
 	}
 	out, err := wc.client.PutItem(ctx, cur)
