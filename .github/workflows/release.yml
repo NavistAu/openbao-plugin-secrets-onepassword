@@ -39,7 +39,7 @@ jobs:
           fi
 
           if [ "${{ inputs.force }}" != "true" ]; then
-            if gh api "repos/${{ github.repository }}/git/refs/tags/${TAG}" >/dev/null 2>&1; then
+            if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
               echo "::error::tag ${TAG} already exists; bump VERSION or re-run with force=true"
               exit 1
             fi
