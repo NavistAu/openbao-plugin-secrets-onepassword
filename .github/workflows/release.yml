@@ -18,6 +18,7 @@ jobs:
     name: Release gate
     runs-on: ubuntu-latest
     outputs:
+      release: ${{ steps.check.outputs.release }}
       version: ${{ steps.check.outputs.version }}
       tag: ${{ steps.check.outputs.tag }}
     env:
@@ -40,8 +41,9 @@ jobs:
 
           if [ "${{ inputs.force }}" != "true" ]; then
             if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
-              echo "::error::tag ${TAG} already exists; bump VERSION or re-run with force=true"
-              exit 1
+              echo "Tag ${TAG} already exists; nothing to release."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
           fi
 
@@ -50,9 +52,13 @@ jobs:
             exit 1
           fi
 
+          echo "Releasing ${TAG}."
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
   verify:
     name: Verify
     needs: gate
+    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +77,7 @@ jobs:
   publish:
     name: Publish
     needs: [gate, verify]
+    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -132,7 +139,7 @@ jobs:
     name: Warm Go module proxy
     needs: [gate, publish]
     runs-on: ubuntu-latest
-    if: ${{ !github.event.repository.private }}
+    if: ${{ needs.gate.outputs.release == 'true' && !github.event.repository.private }}
     steps:
       - uses: actions/checkout@v4
 
