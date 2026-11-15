@@ -12,6 +12,12 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-15
+
+Item writes are stable: the code is 0.2.0-rc.2's, unchanged, after running
+in production since 2026-11-06. The changes are listed under the two release
+candidates below.
+
 ## [0.2.0-rc.2] - 2026-11-04
 
 ### Changed
