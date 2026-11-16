@@ -12,6 +12,8 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-17
+
 ### Fixed
 
 - A top-level write to a built-in field of a categorised item (such as an
