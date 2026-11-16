@@ -197,6 +197,35 @@ func TestWrite_SectionFieldCreateAndUpdate(t *testing.T) {
 	}
 }
 
+// A categorised item's built-in fields sit in the empty section "" (the SDK
+// returns SectionID pointing to ""): a top-level write updates them in place.
+func TestWrite_TopLevelMatchesEmptySection(t *testing.T) {
+	b, storage, fake := writeBackend(t, nil)
+	empty := ""
+	fake.ItemBodies["v1"]["i1"] = onepassword.Item{
+		ID: "i1", Title: "postgres", Category: onepassword.ItemCategoryAPICredentials, VaultID: "v1", Version: 1,
+		Sections: []onepassword.ItemSection{{ID: "", Title: ""}},
+		Fields: []onepassword.ItemField{
+			{ID: "credential", Title: "credential", SectionID: &empty, FieldType: onepassword.ItemFieldTypeConcealed, Value: "old"},
+			{ID: "username", Title: "username", SectionID: &empty, FieldType: onepassword.ItemFieldTypeText, Value: "bob"},
+		},
+	}
+	mustWrite(t, b, storage, "item/Infra/postgres", map[string]interface{}{
+		"fields": map[string]interface{}{"credential": "new"},
+	})
+	p := fake.PutCalls[0]
+	if len(p.Fields) != 2 || len(p.Sections) != 1 {
+		t.Fatalf("write added a field or section: %+v %+v", p.Fields, p.Sections)
+	}
+	f := fieldByTitle(p, "credential")
+	if f.ID != "credential" || f.Value != "new" {
+		t.Errorf("built-in credential not updated in place: %+v", f)
+	}
+	if got := mustReadField(t, b, storage, "Infra", "postgres/credential"); got != "new" {
+		t.Errorf("read after write = %q", got)
+	}
+}
+
 func TestWrite_SectionTitleWithSlash(t *testing.T) {
 	b, storage, fake := writeBackend(t, nil)
 	mustWrite(t, b, storage, "item/Infra/token", map[string]interface{}{
