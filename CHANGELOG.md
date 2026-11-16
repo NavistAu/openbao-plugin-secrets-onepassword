@@ -12,6 +12,18 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-17
+
+### Fixed
+
+- A top-level write to a built-in field of a categorised item (such as an
+  API Credential's `credential` or `username`) updates that field in place.
+  The SDK puts those fields in the empty section `""`, which writes treated
+  as a named section, so the write appended a second field with the same
+  label and reads kept returning the old value. Secret-data handling: such
+  items already written may hold a duplicate field; reads return the first
+  (the built-in one) until the duplicate is removed.
+
 ## [0.2.0] - 2026-11-15
 
 Item writes are stable: the code is 0.2.0-rc.2's, unchanged, after running

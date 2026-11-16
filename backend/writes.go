@@ -328,7 +328,7 @@ func applyFields(item *onepassword.Item, writes []fieldWrite, creating bool) err
 			if f.Title != w.label {
 				continue
 			}
-			if (sectionID == nil) != (f.SectionID == nil) || (sectionID != nil && *f.SectionID != *sectionID) {
+			if sectionKey(f.SectionID) != sectionKey(sectionID) {
 				continue
 			}
 			existing = f
@@ -355,6 +355,16 @@ func applyFields(item *onepassword.Item, writes []fieldWrite, creating bool) err
 		item.Fields = append(item.Fields, f)
 	}
 	return nil
+}
+
+// sectionKey maps a field's section to a comparable key. The SDK gives a
+// categorised item's built-in fields the empty section {id: ""}, which is
+// the top level just as a nil section is.
+func sectionKey(id *string) string {
+	if id == nil {
+		return ""
+	}
+	return *id
 }
 
 // --- item/<vault>/<item> ---
