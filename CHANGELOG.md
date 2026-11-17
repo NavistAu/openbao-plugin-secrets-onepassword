@@ -12,6 +12,15 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-17
+
+### Fixed
+
+- The account-usage probe (`ratelimit_probe_cmd`) works when the bao
+  service user has no writable home directory: it gives `op` a private
+  temporary config directory. A failed probe's `op/status` error now
+  includes `op`'s own message.
+
 ## [0.2.1] - 2026-11-17
 
 ### Fixed
