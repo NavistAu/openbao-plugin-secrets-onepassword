@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -582,7 +583,25 @@ func (g *governor) probeNow(ctx context.Context) {
 	defer cancel()
 	c := exec.CommandContext(execCtx, cmd, "service-account", "ratelimit")
 	c.Env = append(os.Environ(), "OP_SERVICE_ACCOUNT_TOKEN="+token)
-	out, err := c.Output()
+	// op exits 1 unless its config dir is writable, and bao's service
+	// user often has no writable HOME (systemd ProtectHome): hand it a
+	// private one per run.
+	var err error
+	if os.Getenv("OP_CONFIG_DIR") == "" {
+		var dir string
+		if dir, err = os.MkdirTemp("", "op-probe-"); err == nil {
+			defer os.RemoveAll(dir)
+			c.Env = append(c.Env, "OP_CONFIG_DIR="+dir)
+		}
+	}
+	var out []byte
+	if err == nil {
+		out, err = c.Output()
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && len(bytes.TrimSpace(exitErr.Stderr)) > 0 {
+		err = fmt.Errorf("%w: %s", err, bytes.TrimSpace(exitErr.Stderr))
+	}
 
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -390,15 +391,41 @@ func TestGovernor_Probe_FailSafeOnParseFailure(t *testing.T) {
 }
 
 func TestGovernor_Probe_FailSafeOnNonzeroExit(t *testing.T) {
-	path := writeStubProbe(t, "#!/bin/sh\nexit 1\n")
+	path := writeStubProbe(t, "#!/bin/sh\necho 'op says why' 1>&2\nexit 1\n")
 	g, _ := newTestGovernor(1000, 1000)
 	g.mu.Lock()
 	g.probeCmd = path
 	g.mu.Unlock()
 
 	g.probeNow(context.Background())
-	if g.snapshot().ProbeHealthy {
+	snap := g.snapshot()
+	if snap.ProbeHealthy {
 		t.Fatalf("ProbeHealthy = true after nonzero exit, want false")
+	}
+	if !strings.Contains(snap.ProbeErr, "op says why") {
+		t.Errorf("ProbeErr = %q, want it to carry the probe's stderr", snap.ProbeErr)
+	}
+}
+
+func TestGovernor_Probe_WritableConfigDir(t *testing.T) {
+	// op refuses to run without a writable config dir; the engine must
+	// supply one even when HOME is missing or read-only.
+	t.Setenv("OP_CONFIG_DIR", "")
+	os.Unsetenv("OP_CONFIG_DIR")
+	t.Setenv("HOME", "/nonexistent")
+	path := writeStubProbe(t, `#!/bin/sh
+[ -n "$OP_CONFIG_DIR" ] && touch "$OP_CONFIG_DIR/config" || { echo "no writable config dir" 1>&2; exit 1; }
+cat <<'EOF'
+`+recordedProbeOutput+`EOF
+`)
+	g, _ := newTestGovernor(1000, 1000)
+	g.mu.Lock()
+	g.probeCmd = path
+	g.mu.Unlock()
+
+	g.probeNow(context.Background())
+	if snap := g.snapshot(); !snap.ProbeHealthy {
+		t.Fatalf("ProbeHealthy = false, want true; err=%q", snap.ProbeErr)
 	}
 }
 
