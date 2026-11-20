@@ -300,3 +300,28 @@ func TestCycle_ClearsNegativeCacheAndStaleSuspectOnSuccess(t *testing.T) {
 		t.Errorf("invalidatedAt not cleared by a successful cycle, got %v", v.invalidatedAt)
 	}
 }
+
+func TestNoteSyncResult_LogsFirstFailureThrottledThenRecovery(t *testing.T) {
+	v := newVaultReplica("v1")
+	t0 := time.Now()
+	boom := errors.New("boom")
+
+	if f, r := v.noteSyncResult(boom, t0); !f || r {
+		t.Fatalf("first failure: failing=%v recovered=%v, want true/false", f, r)
+	}
+	if f, _ := v.noteSyncResult(boom, t0.Add(time.Minute)); f {
+		t.Errorf("failure within throttle window must not log")
+	}
+	if f, _ := v.noteSyncResult(errGateDenied, t0.Add(time.Hour)); f {
+		t.Errorf("gate denial must be ignored")
+	}
+	if f, _ := v.noteSyncResult(boom, t0.Add(syncFailLogInterval)); !f {
+		t.Errorf("failure after throttle window must log again")
+	}
+	if f, r := v.noteSyncResult(nil, t0.Add(time.Hour)); f || !r {
+		t.Errorf("first success after failure: failing=%v recovered=%v, want false/true", f, r)
+	}
+	if _, r := v.noteSyncResult(nil, t0.Add(2*time.Hour)); r {
+		t.Errorf("steady success must not report recovery")
+	}
+}

@@ -165,8 +165,9 @@ A write is rejected if any of the following hold:
 
 ## Errors and log messages
 
-The engine itself keeps no logger; every failure surfaces as an API
-error or as a field on `op/status`. The plugin's process wrapper
+Read failures surface as API errors or as a field on `op/status`; the engine
+also logs vault sync health (below) so operators can alert on it without
+polling. The plugin's process wrapper
 (`cmd/openbao-plugin-secrets-onepassword`) logs two startup/shutdown
 conditions:
 
@@ -175,7 +176,15 @@ conditions:
 | `failed to parse flags`. | The process received flags OpenBao's plugin launcher did not set. |
 | `plugin shutting down`. | The plugin's gRPC server returned, ending the process. |
 
-The engine's own failures surface as API-response error text, not as
+Vault sync health is logged through OpenBao's server log, throttled to the
+first failure and then at most once per 10 minutes while a vault keeps failing:
+
+| Log message | When it appears |
+| --- | --- |
+| `op: vault sync failing` (`vault_id`, `error`, `replica_age_seconds`) | A delta cycle for the vault failed (client unavailable, list or get error). Gate deferrals do not count. |
+| `op: vault sync recovered` (`vault_id`) | The first successful cycle after a failing one. |
+
+The engine's own read failures surface as API-response error text, not as
 log lines:
 
 | Error message | Meaning |
