@@ -77,6 +77,10 @@ type vaultReplica struct {
 	// surface, spec §4 Failure behaviour); reset to 0 on success.
 	consecutiveFailures int
 
+	// lastFailLog throttles the operator-facing "sync failing" log line:
+	// zero while healthy, else when the line was last emitted.
+	lastFailLog time.Time
+
 	// cycleMu + inflight implement the single-flight coalescing of
 	// concurrent cycle triggers (spec §4: "concurrent triggers for
 	// the same vault coalesce into one cycle"). See cycle.go.
@@ -340,4 +344,30 @@ func (v *vaultReplica) applyDelete(itemID string, pathSplitRegex *regexp.Regexp)
 	delete(v.bodies, itemID)
 	v.tombstones[itemID] = struct{}{}
 	v.rebuildIndexesLocked(pathSplitRegex)
+}
+
+// syncFailLogInterval is how often a persistently failing vault repeats
+// its "sync failing" log line (alerting keys on the line's presence).
+const syncFailLogInterval = 10 * time.Minute
+
+// noteSyncResult records a cycle outcome and reports what to log: failing
+// on the first failure and then at most every syncFailLogInterval; recovered
+// once on the first success after a failure. Gate denials are deferrals,
+// not failures, and are ignored.
+func (v *vaultReplica) noteSyncResult(err error, now time.Time) (failing, recovered bool) {
+	if errors.Is(err, errGateDenied) {
+		return false, false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err == nil {
+		recovered = !v.lastFailLog.IsZero()
+		v.lastFailLog = time.Time{}
+		return false, recovered
+	}
+	if v.lastFailLog.IsZero() || now.Sub(v.lastFailLog) >= syncFailLogInterval {
+		v.lastFailLog = now
+		return true, false
+	}
+	return false, false
 }

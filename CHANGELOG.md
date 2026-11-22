@@ -12,6 +12,18 @@ when it is otherwise a minor or patch change.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-22
+
+### Added
+
+- The engine logs vault sync health to the OpenBao server log, so
+  operators can alert on a stale replica without polling `op/status`.
+  `op: vault sync failing` (with `vault_id`, `error` and
+  `replica_age_seconds`) is logged on a vault's first failed delta cycle,
+  then at most once per 10 minutes while it keeps failing. Gate deferrals
+  do not count as failures. `op: vault sync recovered` is logged once on
+  the first successful cycle after a failure.
+
 ## [0.2.2] - 2026-11-17
 
 ### Fixed

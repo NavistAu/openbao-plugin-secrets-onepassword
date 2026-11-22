@@ -176,6 +176,19 @@ func (b *Backend) ensureClient(ctx context.Context) (OPClient, error) {
 func (b *Backend) runVaultCycle(ctx context.Context, vaultID string, class workClass) error {
 	r := b.getOrCreateReplica(vaultID)
 
+	err := b.runVaultCycleOnce(ctx, r, class)
+	failing, recovered := r.noteSyncResult(err, time.Now())
+	if failing {
+		lastCycle, _, _ := r.freshnessSnapshot()
+		b.Logger().Warn("op: vault sync failing", "vault_id", vaultID, "error", err, "replica_age_seconds", time.Since(lastCycle).Seconds())
+	}
+	if recovered {
+		b.Logger().Info("op: vault sync recovered", "vault_id", vaultID)
+	}
+	return err
+}
+
+func (b *Backend) runVaultCycleOnce(ctx context.Context, r *vaultReplica, class workClass) error {
 	client, err := b.ensureClient(ctx)
 	if err != nil {
 		return err
